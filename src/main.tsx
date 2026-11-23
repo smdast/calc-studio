@@ -7,11 +7,11 @@ import '@fontsource-variable/figtree';
 import './styles.css';
 
 import { AppShell } from '@astryxdesign/core/AppShell';
-import { IconButton } from '@astryxdesign/core/IconButton';
+import { DropdownMenu } from '@astryxdesign/core/DropdownMenu';
 import { Tab, TabList } from '@astryxdesign/core/TabList';
 import { Theme } from '@astryxdesign/core/theme';
 import { neutralTheme } from '@astryxdesign/theme-neutral/built';
-import { Brackets, Calculator as CalculatorIcon, ChartNoAxesCombined, Download, Equal, Moon, Sun } from 'lucide-react';
+import { Brackets, Calculator as CalculatorIcon, ChartNoAxesCombined, Download, Equal, Moon, Settings, Sun } from 'lucide-react';
 import { Calculator } from './Calculator';
 import { LinearAlgebraTool } from './MathTools';
 import { GraphTool } from './GraphTool';
@@ -22,7 +22,7 @@ import { useSaved } from './persistence';
 type InstallPrompt = Event & { prompt(): Promise<unknown> };
 
 const modes = [
-  { id: 'calculator', label: '関数電卓', icon: CalculatorIcon, detail: '関数計算、微分・積分、方程式をひとつの電卓で。' },
+  { id: 'calculator', label: '関数電卓', icon: CalculatorIcon, detail: '' },
   { id: 'system', label: '連立方程式', icon: Equal, detail: '2～4元の連立一次方程式を、係数から解きます。' },
   { id: 'linear', label: '行列・ベクトル', icon: Brackets, detail: 'セルに成分を入力して、行列やベクトルを計算します。' },
   { id: 'graph', label: 'グラフ', icon: ChartNoAxesCombined, detail: '式から曲線を描き、零点・極値・接線を調べます。' },
@@ -65,36 +65,30 @@ function App() {
   }
   const header = <header className="app-header">
     <div className="header-inner">
-      <div className="brand">
-        <span className="brand-mark"><CalculatorIcon size={21} strokeWidth={2} /></span>
-        <span>Calc Studio</span>
+      <div className="navigation">
+        <TabList aria-label="計算モード" value={mode} onChange={select} size="lg" role="tablist" className="mode-tabs">
+          {modes.map(({ id, label, icon: Icon }) => <Tab key={id} id={'tab-' + id} value={id} label={label}
+            panelId={'panel-' + id} icon={<Icon size={17} strokeWidth={1.9} />} />)}
+        </TabList>
       </div>
-      <div className="header-actions">
-        {installPrompt && <IconButton label="アプリをインストール" tooltip="アプリをインストール"
-          variant="ghost" className="theme-toggle" icon={<Download size={19} />}
-          onClick={() => {
+      <DropdownMenu button={{ label: '設定', tooltip: '設定', isIconOnly: true, variant: 'ghost', className: 'settings-trigger', icon: <Settings size={19} /> }}
+        items={[
+          { label: dark ? 'ライトモードに切り替え' : 'ダークモードに切り替え',
+            icon: dark ? <Sun size={17} /> : <Moon size={17} />, onClick: () => setTheme(dark ? 'light' : 'dark') },
+          ...(installPrompt ? [{ label: 'アプリをインストール', icon: <Download size={17} />, onClick: () => {
             setInstallPrompt(undefined);
             void installPrompt.prompt().catch(() => {});
-          }} />}
-        <IconButton label={dark ? 'ライトモードに切り替え' : 'ダークモードに切り替え'}
-          tooltip={dark ? 'ライトモード' : 'ダークモード'} variant="ghost" className="theme-toggle"
-          icon={dark ? <Sun size={19} /> : <Moon size={19} />} onClick={() => setTheme(dark ? 'light' : 'dark')} />
-      </div>
-    </div>
-    <div className="navigation">
-      <TabList aria-label="計算モード" value={mode} onChange={select} size="lg" role="tablist" className="mode-tabs">
-        {modes.map(({ id, label, icon: Icon }) => <Tab key={id} id={'tab-' + id} value={id} label={label}
-          panelId={'panel-' + id} icon={<Icon size={17} strokeWidth={1.9} />} />)}
-      </TabList>
+          } }] : []),
+        ]} />
     </div>
   </header>;
   return <Theme theme={neutralTheme} mode={dark ? 'dark' : 'light'}>
     <AppShell className="app-shell" topNav={header} contentPadding={0} variant="wash">
-      <div className="workspace">
+      <div className={'workspace' + (mode === 'calculator' ? ' calculator-workspace' : '')}>
         {modes.map(({ id, label, detail }) => <section key={id} id={'panel-' + id} role="tabpanel"
           aria-labelledby={'tab-' + id} hidden={mode !== id}>
           {visited.includes(id) && <>
-            <div className="workspace-heading"><h1>{label}</h1><p>{detail}</p></div>
+            {id !== 'calculator' && <div className="workspace-heading"><h1>{label}</h1><p>{detail}</p></div>}
             {id === 'calculator' && <Calculator active={mode === id} history={history} setHistory={setHistory} />}
             {id === 'system' && <SystemTool history={history} setHistory={setHistory} />}
             {id === 'linear' && <LinearAlgebraTool />}

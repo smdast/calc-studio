@@ -1,0 +1,9 @@
+.ML__prompt.ML__editablePromptBox {
+  outline: 1px solid var(--slot-border);
+  border-radius: 3px;
+}
+
+.ML__focused .ML__prompt.ML__focusedPromptBox {
+  outline: 2px solid var(--slot-active);
+  background-color: var(--slot-highlight);
+}

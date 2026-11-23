@@ -3,12 +3,14 @@ import type { RefObject } from 'react';
 import { convertLatexToMarkup, MathfieldElement } from 'mathlive';
 import 'mathlive/fonts.css';
 import 'mathlive/static.css';
+import slotStyles from './math-slots.css?raw';
+import { moveToFormulaSlot } from './formulaSlots';
 import { normalizeFormulaLatex } from './formulaTemplates';
 
 MathfieldElement.fontsDirectory = null;
 MathfieldElement.soundsDirectory = null;
 
-export function MathField({ label, value, onChange, onSubmit, fieldRef, placeholder, virtualKeyboard = true }: {
+export function MathField({ label, value, onChange, onSubmit, fieldRef, placeholder, virtualKeyboard = true, formulaSlots = false }: {
   label: string;
   value: string;
   onChange: (value: string) => void;
@@ -16,6 +18,7 @@ export function MathField({ label, value, onChange, onSubmit, fieldRef, placehol
   fieldRef?: RefObject<MathfieldElement | null>;
   placeholder?: string;
   virtualKeyboard?: boolean;
+  formulaSlots?: boolean;
 }) {
   const localRef = useRef<MathfieldElement>(null);
   const ref = fieldRef ?? localRef;
@@ -28,6 +31,11 @@ export function MathField({ label, value, onChange, onSubmit, fieldRef, placehol
     field.mathVirtualKeyboardPolicy = virtualKeyboard ? 'auto' : 'manual';
     field.smartFence = false;
     field.menuItems = [];
+    const style = formulaSlots && field.shadowRoot ? document.createElement('style') : undefined;
+    if (style) {
+      style.textContent = slotStyles;
+      field.shadowRoot?.append(style);
+    }
     const onInput = () => {
       if (lastReported.current !== field.value) {
         lastReported.current = field.value;
@@ -35,6 +43,12 @@ export function MathField({ label, value, onChange, onSubmit, fieldRef, placehol
       }
     };
     const onKey = (event: KeyboardEvent) => {
+      if (formulaSlots && event.key === 'Tab' && !event.isComposing &&
+          !event.ctrlKey && !event.altKey && !event.metaKey && field.getPrompts().length) {
+        event.stopImmediatePropagation();
+        if (moveToFormulaSlot(field, event.shiftKey)) event.preventDefault();
+        return;
+      }
       const actions = callbacks.current;
       if (actions.onSubmit && !event.isComposing && event.key === 'Enter') {
         event.preventDefault();
@@ -57,11 +71,12 @@ export function MathField({ label, value, onChange, onSubmit, fieldRef, placehol
     field.addEventListener('keydown', onKey, true);
     field.addEventListener('paste', onPaste, true);
     return () => {
+      style?.remove();
       field.removeEventListener('input', onInput);
       field.removeEventListener('keydown', onKey, true);
       field.removeEventListener('paste', onPaste, true);
     };
-  }, [ref, virtualKeyboard]);
+  }, [ref, virtualKeyboard, formulaSlots]);
   useEffect(() => {
     const field = ref.current;
     lastReported.current = value;

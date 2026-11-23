@@ -17,7 +17,7 @@ test('installs under a GitHub Pages project path and calculates offline', { time
     const failures = [];
     page.on('pageerror', error => failures.push(error.message));
     await page.goto(url);
-    await page.getByRole('heading', { name: '関数電卓', exact: true }).waitFor();
+    await page.getByRole('tabpanel', { name: '関数電卓', exact: true }).waitFor();
     const response = await page.request.get(new URL('manifest.webmanifest', url).href);
     const manifest = await response.json();
     assert.equal(manifest.display, 'standalone');
@@ -28,7 +28,7 @@ test('installs under a GitHub Pages project path and calculates offline', { time
     assert.equal(registration, url);
     await context.setOffline(true);
     await page.reload();
-    await page.getByRole('heading', { name: '関数電卓', exact: true }).waitFor();
+    await page.getByRole('tabpanel', { name: '関数電卓', exact: true }).waitFor();
 
     const field = page.locator('math-field');
     await field.evaluate((node, value) => {

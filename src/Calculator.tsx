@@ -6,6 +6,7 @@ import { Card } from '@astryxdesign/core/Card';
 import { Drawer } from '@astryxdesign/core/Drawer';
 import { IconButton } from '@astryxdesign/core/IconButton';
 import { ArrowUpLeft, Check, Clipboard, Clock3, Delete, History, Keyboard, Trash2, X } from 'lucide-react';
+import { moveToFormulaSlot } from './formulaSlots';
 import { derivative, historyFormula, integral, namedFormula } from './formulaTemplates';
 import { MathField, MathText } from './MathField';
 import { Problem, Segments } from './controls';
@@ -81,19 +82,32 @@ export function Calculator({ active, history, setHistory }: {
   const [drawer, setDrawer] = useState(false);
   const [clearConfirmation, setClearConfirmation] = useState(false);
   const [copyStatus, setCopyStatus] = useState<'idle' | 'copied' | 'failed'>('idle');
+  const [formulaError, setFormulaError] = useState('');
   const field = useRef<MathfieldElement>(null);
+  const slotSequence = useRef(0);
   const latestInput = useRef('');
   const task = useCalculation();
   const entries = history.filter(entry => entry.settings?.operation !== 'system');
+  const problem = formulaError || task.error;
   const resultLatex = result?.[format] ?? result?.exact ?? '0';
   const resultLabel = result?.operation && result.operation !== 'calculate'
     ? operationLabels[result.operation] + (result.approximate ? '（近似値）' : '')
     : result?.approximate ? '近似値' : '結果';
 
-  async function submit(source = field.current?.value ?? input, selectedAngle = angle, priorAnswer = recallAnswer ?? answer) {
+  async function submit(source?: string, selectedAngle = angle, priorAnswer = recallAnswer ?? answer) {
+    const element = field.current;
+    if (source === undefined && element) {
+      if (element.getPrompts().some(id => !element.getPromptValue(id).trim()) || element.value.includes('\\placeholder{}')) {
+        task.cancel();
+        task.clearError();
+        setFormulaError('数式の空欄を埋めてください。');
+        return;
+      }
+      source = element.getValue('latex-without-placeholders');
+    }
+    source ??= input;
     if (!source.trim()) { task.clearError(); return; }
-    latestInput.current = source;
-    setInput(source);
+    setFormulaError('');
     const out = await task.run('calculate', { input: source, angle: selectedAngle, ans: priorAnswer });
     if (!out) return;
     setResult(out);
@@ -109,6 +123,7 @@ export function Calculator({ active, history, setHistory }: {
     latestInput.current = value;
     task.cancel();
     task.clearError();
+    setFormulaError('');
     setCopyStatus('idle');
     setInput(value);
   }
@@ -116,6 +131,7 @@ export function Calculator({ active, history, setHistory }: {
   function clear() {
     task.cancel();
     task.clearError();
+    setFormulaError('');
     updateInput('');
     setResult(undefined);
     setRecallAnswer(undefined);
@@ -141,13 +157,33 @@ export function Calculator({ active, history, setHistory }: {
     const element = field.current;
     if (!element || key.value === undefined) return;
     element.focus();
-    element.insert(key.value, { format: 'latex', selectionMode: 'placeholder' });
+    let firstSlot: string | undefined;
+    const latex = key.value.replaceAll('#?', () => {
+      const id = 'slot' + ++slotSequence.current;
+      firstSlot ??= id;
+      return '\\placeholder[' + id + ']{}';
+    });
+    element.insert(latex, { format: 'latex', selectionMode: 'placeholder' });
+    if (firstSlot) {
+      const range = element.getPromptRange(firstSlot);
+      if (range) element.selection = { ranges: [range], direction: 'forward' };
+    }
     updateInput(element.value);
+  }
+
+  function advanceSlot() {
+    const element = field.current;
+    if (!element) return;
+    element.focus();
+    if (element.getPrompts().length) {
+      if (!moveToFormulaSlot(element)) element.executeCommand('moveToMathfieldEnd');
+    } else element.executeCommand('moveToNextPlaceholder');
   }
 
   function recall(entry: HistoryEntry) {
     task.cancel();
     task.clearError();
+    setFormulaError('');
     updateInput(historyFormula(entry));
     setAngle(entry.settings?.operation === 'interval' ? 'RAD' : entry.angle);
     setRecallAnswer(entry.previousAnswer);
@@ -258,7 +294,7 @@ export function Calculator({ active, history, setHistory }: {
       <Card className="calculator-card" padding={0}>
         <div className="calculator-toolbar">
           <Segments label="角度単位" value={angle} items={angles} onChange={next => { setAngle(next); task.clearError(); }} />
-          <Button className="mobile-history" label="履歴" icon={<History size={17} />} variant="ghost"
+          <IconButton className="mobile-history" label="履歴" tooltip="計算履歴" icon={<History size={18} />} size="sm" variant="ghost"
             onClick={() => setDrawer(true)} />
           <span className="toolbar-divider" />
           <IconButton label="文字キーボード" tooltip="文字や記号を入力" size="sm" variant="ghost" icon={<Keyboard size={18} />}
@@ -273,16 +309,16 @@ export function Calculator({ active, history, setHistory }: {
           <div className="display-input">
             <span className="display-label">入力式</span>
             <MathField label="入力式" value={input} onChange={updateInput} fieldRef={field}
-              onSubmit={() => { void submit(); }} placeholder="数式を入力" virtualKeyboard={false} />
+              onSubmit={() => { void submit(); }} placeholder="数式を入力" virtualKeyboard={false} formulaSlots />
           </div>
           <div className="display-output">
             <span className="display-label">{resultLabel}</span>
             <div className="main-result" data-testid="calculator-result" aria-live="polite" aria-busy={task.busy}>
-              <MathText latex={resultLatex} />
+              {problem ? <Problem message={problem} /> : <MathText latex={resultLatex} />}
             </div>
             <IconButton label={copyStatus === 'copied' ? 'コピー済み' : '結果をコピー'} tooltip="結果をコピー"
               variant="ghost" className="copy-button" icon={copyStatus === 'copied' ? <Check size={18} /> : <Clipboard size={17} />}
-              isDisabled={!result} onClick={() => { void copy(); }} />
+              isDisabled={!result || !!problem} onClick={() => { void copy(); }} />
           </div>
         </div>
         <div className="calculator-status">
@@ -292,15 +328,11 @@ export function Calculator({ active, history, setHistory }: {
             result && format !== 'exact' && !result[format] && <span className="format-note">この結果では選択した形式を使用できません</span>}
         </div>
         {copyStatus === 'failed' && <span role="status" className="format-note">コピーできませんでした</span>}
-        <Problem message={task.error} />
         <div className="key-section formula-key-section">
           <div className="formula-key-heading">
             <h2>式の入力 <span>微積分はラジアン</span></h2>
-            <Button label="次の空欄" variant="ghost" size="sm" isDisabled={!input.includes('\\placeholder')}
-              onMouseDown={event => event.preventDefault()} onClick={() => {
-                field.current?.focus();
-                field.current?.executeCommand('moveToNextPlaceholder');
-              }} />
+            <Button label="Tab" tooltip="次の空欄" variant="secondary" size="sm" className="tab-key"
+              isDisabled={!input.includes('\\placeholder')} onMouseDown={event => event.preventDefault()} onClick={advanceSlot} />
           </div>
           <div className="keys formula-keys">
             {(shift ? alternateFormulaKeys : formulaKeys).map(key => keyButton(key, insert, true))}

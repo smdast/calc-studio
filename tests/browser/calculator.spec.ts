@@ -1,5 +1,6 @@
 import { expect, test } from '@playwright/test';
 import type { Locator, Page } from '@playwright/test';
+import type { MathfieldElement } from 'mathlive';
 
 const origin = 'http://127.0.0.1:5173';
 
@@ -12,8 +13,9 @@ async function enter(field: Locator, latex: string) {
 
 async function mode(page: Page, name: string) {
   await page.getByRole('tab', { name, exact: true }).click();
-  await expect(page.getByRole('heading', { name, exact: true, level: 1 })).toBeVisible();
-  return page.getByRole('tabpanel', { name, exact: true });
+  const panel = page.getByRole('tabpanel', { name, exact: true });
+  await expect(panel).toBeVisible();
+  return panel;
 }
 
 for (const mobile of [false, true]) {
@@ -51,6 +53,25 @@ for (const mobile of [false, true]) {
       await expect(exponent.locator('.ML__msubsup')).toBeVisible();
       await fraction.click();
       expect(await input.evaluate(node => (node as HTMLElement & { value: string }).value)).toContain('\\frac{');
+      const slots = () => input.evaluate(node => {
+        const field = node as MathfieldElement;
+        return field.getPrompts().map(id => field.getPromptValue(id));
+      });
+      await expect.poll(slots).toEqual(['', '']);
+      await expect(input.locator('.ML__focusedPromptBox')).toHaveCSS('outline-width', '2px');
+      await key('1').click();
+      await expect.poll(slots).toEqual(['1', '']);
+      if (mobile) await key('一文字削除').tap();
+      else await page.keyboard.press('Backspace');
+      await expect.poll(slots).toEqual(['', '']);
+      await expect(input.locator('.ML__focusedPromptBox')).toHaveCSS('outline-width', '2px');
+      await key('1').click();
+      await page.keyboard.press('Tab');
+      await key('2').click();
+      await expect.poll(slots).toEqual(['1', '2']);
+      await page.keyboard.press('Shift+Tab');
+      await key('3').click();
+      await expect.poll(slots).toEqual(['3', '2']);
       await calc.getByRole('button', { name: 'クリア', exact: true }).click();
       await page.screenshot({ path: info.outputPath('calculator.png') });
       expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(mobile ? 390 : 1440);
@@ -90,7 +111,7 @@ for (const mobile of [false, true]) {
       await key('クリア').click();
       await key('微分').click();
       await key('変数 x を入力').click();
-      await key('次の空欄').click();
+      await key('Tab').click();
       await key('変数 x を入力').click();
       await key('二乗').click();
       await key('決定').click();
@@ -98,14 +119,14 @@ for (const mobile of [false, true]) {
 
       await key('クリア').click();
       await key('定積分').click();
-      await expect(input).toHaveJSProperty('value', '\\int_{\\placeholder{}}^{\\placeholder{}}\\left(\\placeholder{}\\right)\\,\\mathrm{d}\\placeholder{}');
+      await expect.poll(slots).toEqual(['', '', '', '']);
       await key('0').click();
-      await key('次の空欄').click();
+      await key('Tab').click();
       await key('1').click();
-      await key('次の空欄').click();
+      await key('Tab').click();
       await key('変数 x を入力').click();
       await key('二乗').click();
-      await key('次の空欄').click();
+      await key('Tab').click();
       await key('変数 x を入力').click();
       await key('決定').click();
       await expect(result).toHaveAttribute('aria-label', '\\frac{1}{3}');
@@ -163,7 +184,8 @@ for (const mobile of [false, true]) {
       await expect(graph.locator('.contourlayer path').first()).toBeVisible({ timeout: 15000 });
       await page.screenshot({ path: info.outputPath('graph.png') });
 
-      await page.getByRole('button', { name: 'ダークモードに切り替え' }).click();
+      await page.getByRole('button', { name: '設定' }).click();
+      await page.getByRole('menuitem', { name: 'ダークモードに切り替え' }).click();
       await expect(page.locator('html')).toHaveAttribute('data-theme', 'dark');
       await page.reload();
       await expect(page.locator('html')).toHaveAttribute('data-theme', 'dark');
@@ -200,6 +222,24 @@ for (const mobile of [false, true]) {
 
       expect(external).toEqual([]);
       expect(runtimeErrors).toEqual([]);
+    });
+
+    if (mobile) test('fits the entire keypad on a 320×568 phone with a formula and result', async ({ page }) => {
+      await page.setViewportSize({ width: 320, height: 568 });
+      await page.goto('/');
+      const calc = page.getByRole('tabpanel', { name: '関数電卓', exact: true });
+      const field = calc.locator('math-field');
+      const result = calc.getByTestId('calculator-result').getByRole('math');
+      await expect(page.getByText('Calc Studio', { exact: true })).toHaveCount(0);
+      await expect(calc.getByRole('heading', { name: '関数電卓', exact: true })).toHaveCount(0);
+      await enter(field, '\\int_0^1\\frac{3x^2}{2}\\,\\mathrm{d}x');
+      const submit = calc.getByRole('button', { name: '決定', exact: true });
+      await expect(submit).toBeInViewport({ ratio: 1 });
+      await submit.tap();
+      await expect(result).toHaveAttribute('aria-label', '\\frac{1}{2}');
+      await expect(submit).toBeInViewport({ ratio: 1 });
+      expect(await page.evaluate(() => document.documentElement.scrollHeight <= innerHeight)).toBe(true);
+      await expect(page.getByRole('tab', { name: 'グラフ', exact: true })).toBeInViewport({ ratio: 1 });
     });
 
     test('finds exact integrals across unrelated families with local assets only', async ({ page, context }) => {
